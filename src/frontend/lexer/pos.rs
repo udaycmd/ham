@@ -26,7 +26,7 @@ pub struct LexTape {
 
 impl SourcePosition {
     pub fn is_valid(&self) -> bool {
-        return !self.name.is_empty() && self.line > 0 && self.column > 0;
+        !self.name.is_empty() && self.line > 0 && self.column > 0
     }
 }
 
@@ -53,7 +53,7 @@ impl LexFile {
             return None;
         }
 
-        return Some(self.base + offset);
+        Some(self.base + offset)
     }
 
     pub fn lex_offset(&self, pos: u64) -> Option<u64> {
@@ -61,7 +61,7 @@ impl LexFile {
             return None;
         }
 
-        return Some(pos - self.base);
+        Some(pos - self.base)
     }
 
     pub fn source_pos(&self, pos: u64) -> Option<Box<SourcePosition>> {
@@ -82,7 +82,7 @@ impl LexFile {
         src_pos.line = (index + 1) as u64;
         src_pos.column = offset - self.lines[index] + 1;
 
-        return Some(src_pos);
+        Some(src_pos)
     }
 }
 
@@ -96,7 +96,7 @@ impl LexTape {
     }
 
     pub fn size(&self) -> u64 {
-        return self.files.iter().map(|f| f.max_size as u64).sum();
+        self.files.iter().map(|f| f.max_size as u64).sum()
     }
 
     pub fn add_file(&mut self, filename: String, file_size: u64) {
@@ -110,7 +110,7 @@ impl LexTape {
 
         let file = Rc::new(file);
         self.files.push(Rc::clone(&file));
-        self.last_file = Some(Rc::clone(&file));
+        self.last_file = Some(file);
     }
 
     pub fn source_pos(&mut self, pos: u64) -> Option<Box<SourcePosition>> {
@@ -118,7 +118,7 @@ impl LexTape {
             return lexfile.source_pos(pos);
         };
 
-        return None;
+        None
     }
 
     fn get_lexfile(&mut self, pos: u64) -> Option<Rc<LexFile>> {
@@ -138,12 +138,12 @@ impl LexTape {
             .saturating_sub(1);
 
         if let Some(lexfile) = self.files.get(index) {
-            if pos <= lexfile.base + lexfile.max_size {
+            if lexfile.base <= pos && pos <= lexfile.base + lexfile.max_size {
                 self.last_file = Some(Rc::clone(lexfile));
                 return Some(Rc::clone(lexfile));
             }
         }
 
-        return None;
+        None
     }
 }
