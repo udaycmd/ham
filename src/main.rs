@@ -1,6 +1,8 @@
+mod frontend;
+
 fn main() {
-    if let Err(out) = ham::executor() {
-        eprintln!("{out}");
+    if let Err(e) = ham::executor() {
+        eprintln!("{e}");
         std::process::exit(1);
     }
 }
