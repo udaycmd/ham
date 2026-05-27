@@ -1,7 +1,7 @@
 #![recursion_limit = "512"]
 
 pub fn executor() -> Result<(), String> {
-    const MAX_STACK_SIZE: usize = 128 * 1024 * 1024;
+    const MAX_STACK_SIZE: usize = 128 * 1024 * 1024; // 128 MB
 
     let handler = std::thread::Builder::new()
         .name(String::from("ham_main"))
