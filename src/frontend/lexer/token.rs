@@ -78,12 +78,11 @@ pub enum Tok {
     Question,
 
     // - Literals -
-    Identifier(String),
-    StringLiteral(String),
-    CharLiteral(char),
-    IntegerLiteral(i64),
-    UIntegerLiteral(u64),
-    RealLiteral(f64),
+    Identifier,
+    StringLiteral,
+    CharLiteral,
+    IntegerLiteral,
+    RealLiteral,
 }
 
 impl fmt::Display for Tok {
@@ -160,11 +159,11 @@ impl fmt::Display for Tok {
             Tok::GreaterEq => ">=",
             Tok::Question => "?",
 
-            Tok::Identifier(s) | Tok::StringLiteral(s) => return write!(f, "ident({})", s),
-            Tok::CharLiteral(c) => return write!(f, "char({})", c),
-            Tok::IntegerLiteral(i) => return write!(f, "i64({})", i),
-            Tok::UIntegerLiteral(u) => return write!(f, "u64({})", u),
-            Tok::RealLiteral(r) => return write!(f, "f64({})", r),
+            Tok::Identifier => "<ident>",
+            Tok::StringLiteral => "<string>",
+            Tok::CharLiteral => "<char>",
+            Tok::IntegerLiteral => "<integer>",
+            Tok::RealLiteral => "<real>",
         };
 
         write!(f, "{s}")
@@ -231,6 +230,6 @@ pub fn get_ident_or_keyword(s: &str) -> Tok {
         "empty" => Tok::Empty,
         "do" => Tok::Do,
         "end" => Tok::End,
-        ident => Tok::Identifier(ident.to_owned()),
+        _ => Tok::Identifier,
     }
 }

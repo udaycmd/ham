@@ -25,6 +25,7 @@ pub struct LexTape {
 }
 
 impl SourcePosition {
+    #[inline(always)]
     pub fn is_valid(&self) -> bool {
         !self.name.is_empty() && self.line > 0 && self.column > 0
     }
@@ -41,6 +42,7 @@ impl fmt::Display for SourcePosition {
 }
 
 impl LexFile {
+    #[inline(always)]
     pub fn add_line(&mut self, offset: u64) {
         let count = self.lines.len();
         if (count == 0 || self.lines[count - 1] < offset) && offset < self.max_size {
@@ -64,6 +66,12 @@ impl LexFile {
         src_pos
     }
 
+    #[inline(always)]
+    pub fn get_file_base(&self) -> u64 {
+        self.base
+    }
+
+    #[inline(always)]
     fn lex_offset(&self, tape_pos: u64) -> Option<u64> {
         if tape_pos > (self.max_size + self.base) || tape_pos < (self.base) {
             return None;
@@ -82,10 +90,12 @@ impl LexTape {
         }
     }
 
+    #[inline(always)]
     pub fn size(&self) -> u64 {
         self.files.iter().map(|f| f.max_size as u64).sum()
     }
 
+    #[inline(always)]
     pub fn add_file(&mut self, filename: String, file_size: u64) {
         let mut file = LexFile::default();
         file.name = filename;
@@ -98,6 +108,7 @@ impl LexTape {
         self.last_file = Some(self.files.len() - 1);
     }
 
+    #[inline(always)]
     pub fn source_pos(&mut self, tape_pos: u64) -> Option<SourcePosition> {
         if let Some(lex_file) = self.get_lex_file(tape_pos) {
             let offset = lex_file.lex_offset(tape_pos)?;
