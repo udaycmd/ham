@@ -72,7 +72,7 @@ impl LexFile {
     }
 
     #[inline(always)]
-    fn lex_offset(&self, tape_pos: u64) -> Option<u64> {
+    pub fn lex_offset(&self, tape_pos: u64) -> Option<u64> {
         if tape_pos > (self.max_size + self.base) || tape_pos < (self.base) {
             return None;
         }

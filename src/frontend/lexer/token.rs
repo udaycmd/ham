@@ -1,6 +1,36 @@
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[inline(always)]
+pub fn get_ident_or_keyword(s: &str) -> Tok {
+    match s {
+        "break" => Tok::Break,
+        "continue" => Tok::Continue,
+        "if" => Tok::If,
+        "else" => Tok::Else,
+        "switch" => Tok::Switch,
+        "case" => Tok::Case,
+        "default" => Tok::Default,
+        "enum" => Tok::Enum,
+        "proc" => Tok::Proc,
+        "for" => Tok::For,
+        "until" => Tok::Until,
+        "in" => Tok::In,
+        "import" => Tok::Import,
+        "export" => Tok::Export,
+        "return" => Tok::Return,
+        "concept" => Tok::Concept,
+        "var" => Tok::Var,
+        "const" => Tok::Const,
+        "true" => Tok::True,
+        "false" => Tok::False,
+        "empty" => Tok::Empty,
+        "do" => Tok::Do,
+        "end" => Tok::End,
+        _ => Tok::Identifier,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd)]
 #[repr(u8)]
 pub enum Tok {
     Eof,
@@ -41,6 +71,7 @@ pub enum Tok {
     RightBrace,
     Comma,
     Colon,
+    Semicolon,
     Dot,
     DotDotDot,
 
@@ -124,6 +155,7 @@ impl fmt::Display for Tok {
             Tok::RightBrace => "}",
             Tok::Comma => ",",
             Tok::Colon => ":",
+            Tok::Semicolon => ";",
             Tok::Dot => ".",
             Tok::DotDotDot => "...",
 
@@ -171,22 +203,17 @@ impl fmt::Display for Tok {
 }
 
 impl Tok {
-    pub fn is_eof(&self) -> bool {
-        matches!(self, Tok::Eof)
-    }
-
-    pub fn is_keyword(&self) -> bool {
-        self >= &Tok::Break && self <= &Tok::End
-    }
-
+    #[inline(always)]
     pub fn is_punctuator(&self) -> bool {
-        self >= &Tok::LeftParen && self <= &Tok::DotDotDot
+        self >= &Tok::Plus && self <= &Tok::Question
     }
 
+    #[inline(always)]
     pub fn is_operator(&self) -> bool {
         self >= &Tok::Plus && self <= &Tok::Question
     }
 
+    #[inline(always)]
     pub fn prec(&self) -> i32 {
         match self {
             Tok::Equals | Tok::BangEq => 1,
@@ -203,33 +230,19 @@ impl Tok {
             _ => 0,
         }
     }
-}
 
-pub fn get_ident_or_keyword(s: &str) -> Tok {
-    match s {
-        "break" => Tok::Break,
-        "continue" => Tok::Continue,
-        "if" => Tok::If,
-        "else" => Tok::Else,
-        "switch" => Tok::Switch,
-        "case" => Tok::Case,
-        "default" => Tok::Default,
-        "enum" => Tok::Enum,
-        "proc" => Tok::Proc,
-        "for" => Tok::For,
-        "until" => Tok::Until,
-        "in" => Tok::In,
-        "import" => Tok::Import,
-        "export" => Tok::Export,
-        "return" => Tok::Return,
-        "concept" => Tok::Concept,
-        "var" => Tok::Var,
-        "const" => Tok::Const,
-        "true" => Tok::True,
-        "false" => Tok::False,
-        "empty" => Tok::Empty,
-        "do" => Tok::Do,
-        "end" => Tok::End,
-        _ => Tok::Identifier,
+    #[inline(always)]
+    pub fn needs_asi(&self) -> bool {
+        match self {
+            Tok::Break
+            | Tok::Continue
+            | Tok::Return
+            | Tok::Identifier
+            | Tok::True
+            | Tok::False
+            | Tok::Empty
+            | Tok::End => true,
+            _ => false,
+        }
     }
 }
