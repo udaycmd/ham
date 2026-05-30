@@ -118,7 +118,57 @@ pub enum Tok {
 
 impl fmt::Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+impl Tok {
+    #[inline(always)]
+    pub fn is_punctuator(&self) -> bool {
+        self >= &Tok::Plus && self <= &Tok::Question
+    }
+
+    #[inline(always)]
+    pub fn is_operator(&self) -> bool {
+        self >= &Tok::Plus && self <= &Tok::Question
+    }
+
+    #[inline(always)]
+    pub fn prec(&self) -> i32 {
+        match self {
+            Tok::Equals | Tok::BangEq => 1,
+            Tok::Less | Tok::LessEq | Tok::Greater | Tok::GreaterEq => 2,
+            Tok::And
+            | Tok::Or
+            | Tok::RightShift
+            | Tok::LeftShift
+            | Tok::Xor
+            | Tok::Ampersand
+            | Tok::Pipe => 3,
+            Tok::Plus | Tok::Minus => 4,
+            Tok::Star | Tok::Slash | Tok::Percent => 5,
+            _ => 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn needs_asi(&self) -> bool {
+        match self {
+            Tok::Break
+            | Tok::Continue
+            | Tok::Return
+            | Tok::Identifier
+            | Tok::True
+            | Tok::False
+            | Tok::Empty
+            | Tok::End => true,
+            _ => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn to_str(&self) -> &str {
+        match self {
             Tok::Eof => "<eof>",
             Tok::Invalid => "<invalid-token>",
             Tok::Comment => "<comment>",
@@ -196,53 +246,6 @@ impl fmt::Display for Tok {
             Tok::CharLiteral => "<char>",
             Tok::IntegerLiteral => "<integer>",
             Tok::RealLiteral => "<real>",
-        };
-
-        write!(f, "{s}")
-    }
-}
-
-impl Tok {
-    #[inline(always)]
-    pub fn is_punctuator(&self) -> bool {
-        self >= &Tok::Plus && self <= &Tok::Question
-    }
-
-    #[inline(always)]
-    pub fn is_operator(&self) -> bool {
-        self >= &Tok::Plus && self <= &Tok::Question
-    }
-
-    #[inline(always)]
-    pub fn prec(&self) -> i32 {
-        match self {
-            Tok::Equals | Tok::BangEq => 1,
-            Tok::Less | Tok::LessEq | Tok::Greater | Tok::GreaterEq => 2,
-            Tok::And
-            | Tok::Or
-            | Tok::RightShift
-            | Tok::LeftShift
-            | Tok::Xor
-            | Tok::Ampersand
-            | Tok::Pipe => 3,
-            Tok::Plus | Tok::Minus => 4,
-            Tok::Star | Tok::Slash | Tok::Percent => 5,
-            _ => 0,
-        }
-    }
-
-    #[inline(always)]
-    pub fn needs_asi(&self) -> bool {
-        match self {
-            Tok::Break
-            | Tok::Continue
-            | Tok::Return
-            | Tok::Identifier
-            | Tok::True
-            | Tok::False
-            | Tok::Empty
-            | Tok::End => true,
-            _ => false,
         }
     }
 }

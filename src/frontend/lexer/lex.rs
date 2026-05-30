@@ -2,8 +2,10 @@ use crate::frontend::lexer::{
     pos::{LexFile, SourcePosition},
     token::{Tok, get_ident_or_keyword},
 };
-use core::convert::Into;
 use std::str::from_utf8;
+
+const EOF: char = '\0';
+const BOM: char = '\u{FEFF}';
 
 #[inline(always)]
 fn utf8_width(b: u8) -> usize {
@@ -34,7 +36,6 @@ where
     cc: char,
     offset: usize,
     read_offset: usize,
-    eof: bool,
 }
 
 impl<'a, E> Lexer<'a, E>
@@ -58,11 +59,10 @@ where
             cc: ' ',
             offset: 0,
             read_offset: 0,
-            eof: false,
         };
 
         lexer.next();
-        if lexer.cc == '\u{FEFF}' {
+        if lexer.cc == BOM {
             lexer.next(); // strip BOM
         }
 
@@ -70,70 +70,254 @@ where
     }
 
     pub fn scan(&mut self) -> (Tok, String, u64) {
-        let mut literal = "";
-        let mut tok = Tok::Invalid;
-        let mut asi = false;
+        let mut lit = "";
+        let mut tok;
 
         self.scan_whitespace();
 
         let pos = self.file.get_file_base() + self.offset as u64;
+
+        let mut asi = false;
         let c = self.cc;
 
-        if self.eof {
-            if self.do_asi {
-                self.do_asi = false;
-                return (Tok::Semicolon, "\n".to_owned(), pos);
-            }
-
-            tok = Tok::Eof;
+        if c == '_' || c.is_alphabetic() {
+            lit = self.scan_ident();
+            tok = get_ident_or_keyword(lit);
+            asi = tok.needs_asi();
+        } else if c.is_ascii_digit() || (c == '.' && self.peek().is_ascii_digit()) {
+            asi = true;
+            (tok, lit) = self.scan_number();
         } else {
-            if c == '_' || c.is_alphabetic() {
-                literal = self.scan_ident();
-                tok = get_ident_or_keyword(literal);
-                asi = tok.needs_asi();
-            } else if c.is_ascii_digit() || (c == '.' && self.peek().is_ascii_digit()) {
-                asi = true;
-                (tok, literal) = self.scan_number();
-            } else {
-                self.next();
+            self.next();
 
-                match c {
-                    '\n' => {
+            match c {
+                EOF => {
+                    if self.do_asi {
                         self.do_asi = false;
                         return (Tok::Semicolon, "\n".to_owned(), pos);
                     }
 
-                    '"' => {
-                        asi = true;
-                        tok = Tok::StringLiteral;
-                        literal = self.scan_string();
+                    tok = Tok::Eof;
+                }
+
+                '\n' => {
+                    self.do_asi = false;
+                    return (Tok::Semicolon, "\n".to_owned(), pos);
+                }
+
+                '"' => {
+                    asi = true;
+                    tok = Tok::StringLiteral;
+                    lit = self.scan_string();
+                }
+
+                '\'' => {
+                    asi = true;
+                    tok = Tok::CharLiteral;
+                    lit = self.scan_char();
+                }
+
+                '#' => {
+                    if self.do_asi {
+                        self.cc = '#';
+                        self.offset = self.file.lex_offset(pos).unwrap() as usize;
+                        self.read_offset = self.offset + 1;
+                        self.do_asi = false;
+                        return (Tok::Semicolon, "\n".to_owned(), pos);
                     }
 
-                    '"' => {
-                        asi = true;
-                        tok = Tok::StringLiteral;
-                        literal = self.scan_string();
+                    let comment = self.scan_comment();
+                    if !self.parse_comment {
+                        self.do_asi = false;
+                        return self.scan();
                     }
 
-                    _ => {
-                        if c != '\u{FEFF}' {
+                    tok = Tok::Comment;
+                    lit = comment;
+                }
+
+                '?' => tok = Tok::Question,
+
+                '(' => tok = Tok::LeftParen,
+                ')' => {
+                    tok = Tok::RightParen;
+                    asi = true;
+                }
+
+                '[' => tok = Tok::LeftBracket,
+                ']' => {
+                    tok = Tok::RightBracket;
+                    asi = true;
+                }
+
+                '{' => tok = Tok::LeftBrace,
+                '}' => {
+                    tok = Tok::RightBrace;
+                    asi = true;
+                }
+
+                ',' => tok = Tok::Comma,
+                ';' => {
+                    tok = Tok::Semicolon;
+                    lit = ";";
+                }
+
+                ':' => tok = Tok::Colon,
+
+                '=' => {
+                    tok = Tok::Assign;
+                    if self.cc == '=' {
+                        tok = Tok::Equals;
+                        self.next();
+                    }
+                }
+
+                '+' => {
+                    tok = Tok::Plus;
+                    if self.cc == '=' {
+                        tok = Tok::PlusEq;
+                        self.next();
+                    }
+                }
+
+                '*' => {
+                    tok = Tok::Star;
+                    if self.cc == '=' {
+                        tok = Tok::StarEq;
+                        self.next();
+                    }
+                }
+
+                '/' => {
+                    tok = Tok::Slash;
+                    if self.cc == '=' {
+                        tok = Tok::SlashEq;
+                        self.next();
+                    }
+                }
+
+                '%' => {
+                    tok = Tok::Percent;
+                    if self.cc == '=' {
+                        tok = Tok::PercentEq;
+                        self.next();
+                    }
+                }
+
+                '!' => {
+                    tok = Tok::Bang;
+                    if self.cc == '=' {
+                        tok = Tok::BangEq;
+                        self.next();
+                    }
+                }
+
+                '^' => {
+                    tok = Tok::Xor;
+                    if self.cc == '=' {
+                        tok = Tok::XorEq;
+                        self.next();
+                    }
+                }
+
+                '-' => {
+                    tok = Tok::Minus;
+                    if self.cc == '=' {
+                        tok = Tok::MinusEq;
+                        self.next();
+                    }
+                }
+
+                '>' => {
+                    tok = Tok::Greater;
+                    if self.cc == '>' {
+                        tok = Tok::RightShift;
+                        self.next();
+                        if self.cc == '=' {
+                            tok = Tok::RshiftEq;
+                            self.next();
+                        }
+                    } else if self.cc == '=' {
+                        tok = Tok::GreaterEq;
+                        self.next();
+                    }
+                }
+
+                '<' => {
+                    tok = Tok::Less;
+                    if self.cc == '<' {
+                        tok = Tok::LeftShift;
+                        self.next();
+                        if self.cc == '=' {
+                            tok = Tok::LshiftEq;
+                            self.next();
+                        }
+                    } else if self.cc == '=' {
+                        tok = Tok::LessEq;
+                        self.next();
+                    }
+                }
+
+                '&' => {
+                    tok = Tok::Ampersand;
+                    if self.cc == '=' {
+                        tok = Tok::AndEq;
+                        self.next();
+                    } else if self.cc == '&' {
+                        tok = Tok::And;
+                        self.next();
+                    }
+                }
+
+                '|' => {
+                    tok = Tok::Pipe;
+                    if self.cc == '=' {
+                        tok = Tok::OrEq;
+                        self.next();
+                    } else if self.cc == '|' {
+                        tok = Tok::Or;
+                        self.next();
+                    }
+                }
+
+                '.' => {
+                    tok = Tok::Dot;
+                    if self.cc == '.' {
+                        self.next();
+                        if self.cc == '.' {
+                            tok = Tok::DotDotDot;
+                            self.next();
+                        } else {
                             self.err(
-                                "unexpected unicode character",
+                                "invalid ellipsis mark",
                                 self.file.lex_offset(pos).unwrap() as usize,
                             );
                         }
-
-                        asi = self.do_asi;
-                        literal = "<invalid_character>";
-                        tok = Tok::Invalid
                     }
+                }
+
+                _ => {
+                    if c != BOM {
+                        self.err(
+                            "unexpected unicode character",
+                            self.file.lex_offset(pos).unwrap() as usize,
+                        );
+                    }
+
+                    self.do_asi = asi;
+                    let lit = Tok::Invalid.to_str().to_owned();
+                    return (Tok::Invalid, lit, pos);
                 }
             }
         }
 
-        if tok.is_operator() || tok.is_punctuator() {}
-
-        (tok, literal.to_owned(), pos)
+        self.do_asi = asi;
+        if tok.is_operator() || tok.is_punctuator() {
+            let lit = tok.to_str().to_owned();
+            (tok, lit, pos)
+        } else {
+            (tok, lit.to_owned(), pos)
+        }
     }
 
     #[inline(always)]
@@ -171,7 +355,7 @@ where
                             Ok(s) => {
                                 let ch = s.chars().next().unwrap();
 
-                                if ch == '\u{FEFF}' && self.offset > 0 {
+                                if ch == BOM && self.offset > 0 {
                                     self.err("unexpected BOM encounter", self.offset);
                                 }
 
@@ -195,7 +379,7 @@ where
                 self.file.add_line(self.offset as u64);
             }
 
-            self.eof = true
+            self.cc = EOF;
         }
     }
 
@@ -209,7 +393,7 @@ where
     }
 
     #[inline]
-    fn scan_ident(&mut self) -> &str {
+    fn scan_ident(&mut self) -> &'a str {
         let prev_offset = self.offset;
         while self.cc.is_alphabetic() || self.cc.is_numeric() {
             self.next();
@@ -230,7 +414,7 @@ where
     }
 
     #[inline]
-    fn scan_comment(&mut self) -> &str {
+    fn scan_comment(&mut self) -> &'a str {
         let prev_offset = self.offset - 1;
         while self.cc != '\n' && self.cc >= 0 as char {
             self.next()
@@ -246,7 +430,7 @@ where
         }
     }
 
-    fn scan_number(&mut self) -> (Tok, &str) {
+    fn scan_number(&mut self) -> (Tok, &'a str) {
         let mut tok = Tok::IntegerLiteral;
         let mut prev_offset = self.offset;
         let mut base = 10;
@@ -354,7 +538,7 @@ where
             }
 
             _ => {
-                let msg = if self.eof {
+                let msg = if self.cc == EOF {
                     "unterminated escape sequence"
                 } else {
                     "unknown escape sequence"
@@ -373,7 +557,7 @@ where
             if d >= base {
                 let mut msg = "illegal unicode escape sequence";
 
-                if self.eof {
+                if self.cc == EOF {
                     msg = "unterminated escape sequence";
                 }
 
@@ -394,7 +578,7 @@ where
         true
     }
 
-    fn scan_string(&mut self) -> &str {
+    fn scan_string(&mut self) -> &'a str {
         let prev_offset = self.offset - 1;
         loop {
             let ch = self.cc;
@@ -418,7 +602,7 @@ where
         from_utf8(&self.src[prev_offset..self.offset]).unwrap()
     }
 
-    fn scan_char(&mut self) -> &str {
+    fn scan_char(&mut self) -> &'a str {
         let prev_offset = self.offset - 1;
 
         let mut valid = true;
@@ -427,7 +611,7 @@ where
         loop {
             let ch = self.cc;
 
-            if ch == '\n' || self.eof {
+            if ch == '\n' || ch == EOF {
                 if valid {
                     self.err("unterminated char literal", prev_offset);
                     valid = false

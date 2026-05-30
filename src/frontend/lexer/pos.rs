@@ -2,7 +2,7 @@ use std::fmt;
 
 const INVALID_POSITION: u64 = 0;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct SourcePosition {
     name: String,
     offset: u64,
