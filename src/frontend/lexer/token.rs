@@ -130,7 +130,7 @@ impl Tok {
 
     #[inline(always)]
     pub fn is_operator(&self) -> bool {
-        self >= &Tok::Plus && self <= &Tok::Question
+        self >= &Tok::LeftParen && self <= &Tok::DotDotDot
     }
 
     #[inline(always)]
@@ -148,21 +148,6 @@ impl Tok {
             Tok::Plus | Tok::Minus => 4,
             Tok::Star | Tok::Slash | Tok::Percent => 5,
             _ => 0,
-        }
-    }
-
-    #[inline(always)]
-    pub fn needs_asi(&self) -> bool {
-        match self {
-            Tok::Break
-            | Tok::Continue
-            | Tok::Return
-            | Tok::Identifier
-            | Tok::True
-            | Tok::False
-            | Tok::Empty
-            | Tok::End => true,
-            _ => false,
         }
     }
 

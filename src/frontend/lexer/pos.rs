@@ -6,19 +6,18 @@ const INVALID_POSITION: u64 = 0;
 pub struct SourcePosition {
     name: String,
     offset: u64,
-    line: u64,
-    column: u64,
+    pub line: u64,
+    pub column: u64,
 }
 
-#[derive(Default)]
 pub struct LexFile {
     name: String,
-    base: u64,
     max_size: u64,
     lines: Vec<u64>,
+    pub base: u64,
 }
 
-pub struct LexTape {
+pub struct FileSet {
     files: Vec<LexFile>,
     last_file: Option<usize>,
     base: u64,
@@ -60,15 +59,10 @@ impl LexFile {
             .lines
             .partition_point(|&line| line <= offset)
             .saturating_sub(1);
-        src_pos.line = (index + 1) as u64;
         src_pos.column = offset - self.lines[index] + 1;
+        src_pos.line = (index + 1) as u64;
 
         src_pos
-    }
-
-    #[inline(always)]
-    pub fn get_file_base(&self) -> u64 {
-        self.base
     }
 
     #[inline(always)]
@@ -81,8 +75,8 @@ impl LexFile {
     }
 }
 
-impl LexTape {
-    pub fn new() -> LexTape {
+impl FileSet {
+    pub fn new() -> Self {
         Self {
             files: vec![],
             last_file: None,
@@ -96,48 +90,51 @@ impl LexTape {
     }
 
     #[inline(always)]
-    pub fn add_file(&mut self, filename: String, file_size: u64) {
-        let mut file = LexFile::default();
-        file.name = filename;
-        file.base = self.base;
-        file.max_size = file_size;
-        file.lines = vec![0];
+    pub fn add_file(&mut self, filename: String, file_size: u64) -> &mut LexFile {
+        let file = LexFile {
+            name: filename,
+            base: self.base,
+            max_size: file_size,
+            lines: vec![0],
+        };
 
         self.base += file_size + 1;
         self.files.push(file);
         self.last_file = Some(self.files.len() - 1);
+
+        &mut self.files[self.last_file.unwrap_or(0)]
     }
 
     #[inline(always)]
-    pub fn source_pos(&mut self, tape_pos: u64) -> Option<SourcePosition> {
-        if let Some(lex_file) = self.get_lex_file(tape_pos) {
-            let offset = lex_file.lex_offset(tape_pos)?;
+    pub fn source_pos(&mut self, pos: u64) -> Option<SourcePosition> {
+        if let Some(lex_file) = self.get_lex_file(pos) {
+            let offset = lex_file.lex_offset(pos)?;
             return Some(lex_file.source_pos(offset));
         };
 
         None
     }
 
-    fn get_lex_file(&mut self, tape_pos: u64) -> Option<&LexFile> {
-        if tape_pos == INVALID_POSITION {
+    fn get_lex_file(&mut self, pos: u64) -> Option<&LexFile> {
+        if pos == INVALID_POSITION {
             return None;
         }
 
         if let Some(index) = self.last_file {
             let lex_file = &self.files[index];
 
-            if lex_file.base <= tape_pos && tape_pos <= lex_file.base + lex_file.max_size {
+            if lex_file.base <= pos && pos <= lex_file.base + lex_file.max_size {
                 return Some(lex_file);
             }
         };
 
         let index = self
             .files
-            .partition_point(|f| f.base <= tape_pos)
+            .partition_point(|f| f.base <= pos)
             .saturating_sub(1);
 
         if let Some(lex_file) = self.files.get(index) {
-            if lex_file.base <= tape_pos && tape_pos <= lex_file.base + lex_file.max_size {
+            if lex_file.base <= pos && pos <= lex_file.base + lex_file.max_size {
                 self.last_file = Some(index);
                 return Some(lex_file);
             }
