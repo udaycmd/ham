@@ -1,32 +1,29 @@
 use std::fmt;
 
-const INVALID_POSITION: u64 = 0;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Position(pub usize);
 
-#[derive(Default, Debug)]
+const INVALID_POSITION: Position = Position(0);
+
+impl Position {
+    #[inline]
+    pub fn is_valid(&self) -> bool {
+        *self != INVALID_POSITION
+    }
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
 pub struct SourcePosition {
     name: String,
-    offset: u64,
-    pub line: u64,
-    pub column: u64,
-}
-
-pub struct LexFile {
-    name: String,
-    max_size: u64,
-    lines: Vec<u64>,
-    pub base: u64,
-}
-
-pub struct FileSet {
-    files: Vec<LexFile>,
-    last_file: Option<usize>,
-    base: u64,
+    offset: usize,
+    pub line: usize,
+    pub column: usize,
 }
 
 impl SourcePosition {
-    #[inline(always)]
+    #[inline]
     pub fn is_valid(&self) -> bool {
-        !self.name.is_empty() && self.line > 0 && self.column > 0
+        self.line > 0
     }
 }
 
@@ -40,106 +37,141 @@ impl fmt::Display for SourcePosition {
     }
 }
 
-impl LexFile {
-    #[inline(always)]
-    pub fn add_line(&mut self, offset: u64) {
-        let count = self.lines.len();
-        if (count == 0 || self.lines[count - 1] < offset) && offset < self.max_size {
-            self.lines.push(offset);
-        }
-    }
-
-    pub fn source_pos(&self, offset: u64) -> SourcePosition {
-        let mut src_pos = SourcePosition::default();
-
-        src_pos.offset = offset;
-        src_pos.name = self.name.clone();
-
-        let index = self
-            .lines
-            .partition_point(|&line| line <= offset)
-            .saturating_sub(1);
-        src_pos.column = offset - self.lines[index] + 1;
-        src_pos.line = (index + 1) as u64;
-
-        src_pos
-    }
-
-    #[inline(always)]
-    pub fn lex_offset(&self, tape_pos: u64) -> Option<u64> {
-        if tape_pos > (self.max_size + self.base) || tape_pos < (self.base) {
-            return None;
-        }
-
-        Some(tape_pos - self.base)
-    }
+pub struct FileSet {
+    files: Vec<File>,
+    last_touched_file: Option<usize>,
+    base: usize,
 }
 
 impl FileSet {
     pub fn new() -> Self {
         Self {
             files: vec![],
-            last_file: None,
+            last_touched_file: None,
             base: 1,
         }
     }
 
-    #[inline(always)]
-    pub fn size(&self) -> u64 {
-        self.files.iter().map(|f| f.max_size as u64).sum()
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.files.iter().map(|f| f.size).sum()
     }
 
-    #[inline(always)]
-    pub fn add_file(&mut self, filename: String, file_size: u64) -> &mut LexFile {
-        let file = LexFile {
-            name: filename,
+    pub fn add_file(&mut self, file_name: String, file_size: usize) -> &mut File {
+        let file = File {
+            name: file_name,
             base: self.base,
-            max_size: file_size,
+            size: file_size,
             lines: vec![0],
         };
 
-        self.base += file_size + 1;
+        let next_base = self
+            .base
+            .checked_add(file_size + 1)
+            .expect("crash: offset overflow");
+
+        self.base = next_base;
+        let index = self.files.len();
         self.files.push(file);
-        self.last_file = Some(self.files.len() - 1);
+        self.last_touched_file = Some(index);
 
-        &mut self.files[self.last_file.unwrap_or(0)]
+        self.files.last_mut().unwrap()
     }
 
-    #[inline(always)]
-    pub fn source_pos(&mut self, pos: u64) -> Option<SourcePosition> {
-        if let Some(lex_file) = self.get_lex_file(pos) {
-            let offset = lex_file.lex_offset(pos)?;
-            return Some(lex_file.source_pos(offset));
-        };
-
-        None
+    #[inline]
+    pub fn source_pos(&mut self, p: Position) -> Option<SourcePosition> {
+        self.get_file(p).map(|f| f.source_pos(p))
     }
 
-    fn get_lex_file(&mut self, pos: u64) -> Option<&LexFile> {
-        if pos == INVALID_POSITION {
+    fn get_file(&mut self, p: Position) -> Option<&File> {
+        if !p.is_valid() {
             return None;
         }
 
-        if let Some(index) = self.last_file {
-            let lex_file = &self.files[index];
+        let p_val = p.0;
 
-            if lex_file.base <= pos && pos <= lex_file.base + lex_file.max_size {
-                return Some(lex_file);
+        if let Some(idx) = self.last_touched_file {
+            if let Some(f) = self.files.get(idx) {
+                if p_val >= f.base && p_val <= f.base + f.size {
+                    return Some(f);
+                }
             }
-        };
+        }
 
-        let index = self
-            .files
-            .partition_point(|f| f.base <= pos)
-            .saturating_sub(1);
+        let mut idx = self.files.partition_point(|f| f.base <= p_val);
 
-        if let Some(lex_file) = self.files.get(index) {
-            if lex_file.base <= pos && pos <= lex_file.base + lex_file.max_size {
-                self.last_file = Some(index);
-                return Some(lex_file);
+        if idx > 0 {
+            idx -= 1;
+            let f = &self.files[idx];
+
+            if p_val <= f.base + f.size {
+                self.last_touched_file = Some(idx);
+                return Some(f);
             }
         }
 
         None
+    }
+}
+
+pub struct File {
+    name: String,
+    size: usize,
+    lines: Vec<usize>,
+    pub base: usize,
+}
+
+impl File {
+    #[inline]
+    pub fn add_line(&mut self, offset: usize) {
+        if (self.lines.is_empty() || *self.lines.last().unwrap() < offset) && offset < self.size {
+            self.lines.push(offset);
+        }
+    }
+
+    #[inline]
+    pub fn to_set_pos(&self, offset: usize) -> Position {
+        assert!(offset <= self.size, "invalid file offset");
+        Position(self.base + offset)
+    }
+
+    #[inline]
+    pub fn to_file_offset(&self, p: Position) -> usize {
+        assert!(
+            p.0 >= self.base && p.0 <= self.base + self.size,
+            "illegal tape position"
+        );
+
+        p.0 - self.base
+    }
+
+    pub fn source_pos(&self, p: Position) -> SourcePosition {
+        if !p.is_valid() {
+            return SourcePosition {
+                name: self.name.clone(),
+                offset: 0,
+                line: 0,
+                column: 0,
+            };
+        }
+
+        assert!(
+            p.0 >= self.base && p.0 <= self.base + self.size,
+            "illegal position"
+        );
+
+        let offset = p.0 - self.base;
+        let mut idx = self.lines.partition_point(|&l| l <= offset);
+
+        if idx > 0 {
+            idx -= 1;
+        }
+
+        SourcePosition {
+            name: self.name.clone(),
+            offset,
+            line: idx + 1,
+            column: offset - self.lines[idx] + 1,
+        }
     }
 }

@@ -1,22 +1,10 @@
 use crate::frontend::lexer::{
-    pos::{LexFile, SourcePosition},
+    pos::{File, Position, SourcePosition},
     token::{Tok, get_ident_or_keyword},
 };
 use std::str::from_utf8;
 
-const EOF: char = '\0';
 const BOM: char = '\u{FEFF}';
-
-#[inline(always)]
-fn utf8_width(b: u8) -> usize {
-    match b {
-        0x00..=0x7F => 1,
-        0xC2..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF4 => 4,
-        _ => 0,
-    }
-}
 
 #[inline(always)]
 fn hex_digit_value(ch: char) -> u32 {
@@ -27,12 +15,12 @@ pub struct Lexer<'a, E>
 where
     E: Fn(&str, &SourcePosition),
 {
-    file: &'a mut LexFile,
+    pub file: &'a mut File,
     src: &'a [u8],
     parse_comment: bool,
     err_cb: E,
     err_count: u64,
-    cc: char,
+    cc: Option<char>,
     offset: usize,
     read_offset: usize,
 }
@@ -41,35 +29,40 @@ impl<'a, E> Lexer<'a, E>
 where
     E: Fn(&str, &SourcePosition),
 {
-    pub fn new(file: &'a mut LexFile, src: &'a [u8], parse_comment: bool, err_cb: E) -> Self {
+    pub fn new(file: &'a mut File, src: &'a [u8], parse_comment: bool, err_cb: E) -> Self {
         let mut lexer = Self {
             file,
             src,
             parse_comment,
             err_cb,
             err_count: 0,
-            cc: ' ',
+            cc: Some(' '),
             offset: 0,
             read_offset: 0,
         };
 
         lexer.next();
-        if lexer.cc == BOM {
+        if lexer.cc == Some(BOM) {
             lexer.next(); // strip BOM
         }
 
         lexer
     }
 
-    pub fn scan(&mut self) -> (Tok, String, u64) {
+    pub fn scan(&mut self) -> (Tok, String, Position) {
         let mut lit = "";
-        let mut tok;
+        let mut tok = Tok::Invalid;
 
         self.scan_whitespace();
 
-        let pos = self.file.base.saturating_add(self.offset as u64);
+        let pos = self.file.to_set_pos(self.offset);
 
-        let c = self.cc;
+        let c = match self.cc {
+            Some(ch) => ch,
+            None => {
+                return (Tok::Eof, Tok::Eof.to_str().to_owned(), pos);
+            }
+        };
 
         if c == '_' || c.is_alphabetic() {
             lit = self.scan_ident();
@@ -80,8 +73,6 @@ where
             self.next();
 
             match c {
-                EOF => tok = Tok::Eof,
-
                 '"' => {
                     tok = Tok::StringLiteral;
                     lit = self.scan_string();
@@ -115,7 +106,7 @@ where
 
                 '=' => {
                     tok = Tok::Assign;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::Equals;
                         self.next();
                     }
@@ -123,7 +114,7 @@ where
 
                 '+' => {
                     tok = Tok::Plus;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::PlusEq;
                         self.next();
                     }
@@ -131,7 +122,7 @@ where
 
                 '*' => {
                     tok = Tok::Star;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::StarEq;
                         self.next();
                     }
@@ -139,7 +130,7 @@ where
 
                 '/' => {
                     tok = Tok::Slash;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::SlashEq;
                         self.next();
                     }
@@ -147,7 +138,7 @@ where
 
                 '%' => {
                     tok = Tok::Percent;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::PercentEq;
                         self.next();
                     }
@@ -155,7 +146,7 @@ where
 
                 '!' => {
                     tok = Tok::Bang;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::BangEq;
                         self.next();
                     }
@@ -163,7 +154,7 @@ where
 
                 '^' => {
                     tok = Tok::Xor;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::XorEq;
                         self.next();
                     }
@@ -171,7 +162,7 @@ where
 
                 '-' => {
                     tok = Tok::Minus;
-                    if self.cc == '=' {
+                    if self.cc == Some('=') {
                         tok = Tok::MinusEq;
                         self.next();
                     }
@@ -179,68 +170,81 @@ where
 
                 '>' => {
                     tok = Tok::Greater;
-                    if self.cc == '>' {
-                        tok = Tok::RightShift;
-                        self.next();
-                        if self.cc == '=' {
-                            tok = Tok::RshiftEq;
+                    match self.cc {
+                        Some('>') => {
+                            tok = Tok::RightShift;
+                            self.next();
+                            if self.cc == Some('=') {
+                                tok = Tok::RshiftEq;
+                                self.next();
+                            }
+                        }
+                        Some('=') => {
+                            tok = Tok::GreaterEq;
                             self.next();
                         }
-                    } else if self.cc == '=' {
-                        tok = Tok::GreaterEq;
-                        self.next();
+                        _ => {}
                     }
                 }
 
                 '<' => {
                     tok = Tok::Less;
-                    if self.cc == '<' {
-                        tok = Tok::LeftShift;
-                        self.next();
-                        if self.cc == '=' {
-                            tok = Tok::LshiftEq;
+                    match self.cc {
+                        Some('<') => {
+                            tok = Tok::LeftShift;
+                            self.next();
+                            if self.cc == Some('=') {
+                                tok = Tok::LshiftEq;
+                                self.next();
+                            }
+                        }
+                        Some('=') => {
+                            tok = Tok::LessEq;
                             self.next();
                         }
-                    } else if self.cc == '=' {
-                        tok = Tok::LessEq;
-                        self.next();
+                        _ => {}
                     }
                 }
 
                 '&' => {
                     tok = Tok::Ampersand;
-                    if self.cc == '=' {
-                        tok = Tok::AndEq;
-                        self.next();
-                    } else if self.cc == '&' {
-                        tok = Tok::And;
-                        self.next();
+                    match self.cc {
+                        Some('=') => {
+                            tok = Tok::AndEq;
+                            self.next();
+                        }
+                        Some('&') => {
+                            tok = Tok::And;
+                            self.next();
+                        }
+                        _ => {}
                     }
                 }
 
                 '|' => {
                     tok = Tok::Pipe;
-                    if self.cc == '=' {
-                        tok = Tok::OrEq;
-                        self.next();
-                    } else if self.cc == '|' {
-                        tok = Tok::Or;
-                        self.next();
+                    match self.cc {
+                        Some('=') => {
+                            tok = Tok::OrEq;
+                            self.next();
+                        }
+                        Some('|') => {
+                            tok = Tok::Or;
+                            self.next();
+                        }
+                        _ => {}
                     }
                 }
 
                 '.' => {
                     tok = Tok::Dot;
-                    if self.cc == '.' {
+                    if self.cc == Some('.') {
                         self.next();
-                        if self.cc == '.' {
+                        if self.cc == Some('.') {
                             tok = Tok::DotDotDot;
                             self.next();
                         } else {
-                            self.err(
-                                "invalid ellipsis mark",
-                                self.file.lex_offset(pos).unwrap() as usize,
-                            );
+                            self.err("invalid ellipsis mark", self.file.to_file_offset(pos));
                         }
                     }
                 }
@@ -249,12 +253,11 @@ where
                     if c != BOM {
                         self.err(
                             "unexpected unicode character",
-                            self.file.lex_offset(pos).unwrap() as usize,
+                            self.file.to_file_offset(pos),
                         );
-                    }
+                    };
 
-                    let lit = Tok::Invalid.to_str().to_owned();
-                    return (Tok::Invalid, lit, pos);
+                    return (tok, c.to_string(), pos);
                 }
             }
         }
@@ -267,9 +270,9 @@ where
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn err(&mut self, msg: &str, offset: usize) {
-        (self.err_cb)(msg, &self.file.source_pos(offset as u64));
+        (self.err_cb)(msg, &self.file.source_pos(self.file.to_set_pos(offset)));
         self.err_count += 1;
     }
 
@@ -277,73 +280,67 @@ where
         if self.read_offset < self.src.len() {
             self.offset = self.read_offset;
 
-            if self.cc == '\n' {
-                self.file.add_line(self.offset as u64);
+            if self.cc == Some('\n') {
+                self.file.add_line(self.offset);
             }
 
-            let b = self.src[self.read_offset];
-
-            let (ch, width) = match b {
-                0 => {
-                    self.err("unexpected null character", self.offset);
-                    ('\0', 1)
-                }
-
-                0x00..=0x7F => (b as char, 1),
-
-                _ => {
-                    let w = utf8_width(b);
-
-                    if w == 0 || self.read_offset + w > self.src.len() {
-                        self.err("unexpected unicode character", self.offset);
-                        (char::REPLACEMENT_CHARACTER, 1)
-                    } else {
-                        match from_utf8(&self.src[self.read_offset..self.read_offset + w]) {
-                            Ok(s) => {
-                                let ch = s.chars().next().unwrap();
-
-                                if ch == BOM && self.offset > 0 {
-                                    self.err("unexpected BOM encounter", self.offset);
-                                }
-
-                                (ch, w)
-                            }
-
-                            Err(_) => {
-                                self.err("unexpected unicode character", self.offset);
-                                (char::REPLACEMENT_CHARACTER, w)
-                            }
+            let tail = &self.src[self.read_offset..];
+            let (rune, width) = if tail[0] < 128 {
+                (tail[0] as char, 1)
+            } else {
+                let max = tail.len().min(4);
+                match from_utf8(&tail[..max]) {
+                    Ok(s) => {
+                        let c = s.chars().next().unwrap();
+                        (c, c.len_utf8())
+                    }
+                    Err(e) => {
+                        let valid_up_to = e.valid_up_to();
+                        if valid_up_to > 0 {
+                            let s = str::from_utf8(&tail[..valid_up_to]).unwrap();
+                            let c = s.chars().next().unwrap();
+                            (c, c.len_utf8())
+                        } else {
+                            (char::REPLACEMENT_CHARACTER, 1)
                         }
                     }
                 }
             };
 
-            self.read_offset += width;
-            self.cc = ch;
-        } else {
-            self.offset = self.src.len();
-            if self.cc == '\n' {
-                self.file.add_line(self.offset as u64);
+            if rune == '\0' {
+                self.err("unexpected null character", self.offset);
+            } else if rune == char::REPLACEMENT_CHARACTER && width == 1 {
+                self.err("illegal unicode character in lexer stream", self.offset);
+            } else if rune == BOM && self.offset > 0 {
+                self.err("unexpected UTF_8 BOM", self.offset);
             }
 
-            self.cc = EOF;
+            self.read_offset += width;
+            self.cc = Some(rune);
+        } else {
+            self.offset = self.src.len();
+            if self.cc == Some('\n') {
+                self.file.add_line(self.offset);
+            }
+
+            self.cc = None; // eof
         }
     }
 
-    #[inline(always)]
+    #[inline]
     fn peek(&self) -> u8 {
-        if self.read_offset < self.src.len() {
-            return self.src[self.read_offset];
-        }
-
-        0
+        self.src.get(self.read_offset).copied().unwrap_or(0)
     }
 
     #[inline]
     fn scan_ident(&mut self) -> &'a str {
         let prev_offset = self.offset;
-        while self.cc.is_alphabetic() || self.cc.is_numeric() {
-            self.next();
+        while let Some(c) = self.cc {
+            if c.is_alphabetic() || c.is_numeric() {
+                self.next();
+            } else {
+                break;
+            }
         }
 
         from_utf8(&self.src[prev_offset..self.offset]).unwrap()
@@ -351,16 +348,23 @@ where
 
     #[inline]
     fn scan_whitespace(&mut self) {
-        while self.cc.is_whitespace() {
-            self.next();
+        while let Some(c) = self.cc {
+            if c.is_whitespace() {
+                self.next();
+            } else {
+                break;
+            }
         }
     }
 
     #[inline]
     fn scan_comment(&mut self) -> &'a str {
         let prev_offset = self.offset - 1;
-        while self.cc != '\n' && self.cc >= 0 as char {
-            self.next()
+        while let Some(c) = self.cc {
+            if c == '\n' {
+                break;
+            }
+            self.next();
         }
 
         from_utf8(&self.src[prev_offset..self.offset]).unwrap()
@@ -368,8 +372,12 @@ where
 
     #[inline]
     fn scan_digit_seq(&mut self, base: u32) {
-        while self.cc == '_' || hex_digit_value(self.cc) < base {
-            self.next()
+        while let Some(c) = self.cc {
+            if c == '_' || hex_digit_value(c) < base {
+                self.next()
+            } else {
+                break;
+            }
         }
     }
 
@@ -378,26 +386,19 @@ where
         let prev_offset = self.offset;
         let mut base = 10;
 
-        match (self.cc, self.peek().to_ascii_lowercase() as char) {
-            ('0', 'b') => {
-                base = 2;
-                self.next();
-                self.next();
-            }
-
-            ('0', 'o') => {
-                base = 8;
-                self.next();
-                self.next();
-            }
-
-            ('0', 'x') => {
-                base = 16;
-                self.next();
-                self.next();
-            }
-
-            _ => {}
+        let peek_char = (self.peek() as char).to_ascii_lowercase();
+        if self.cc == Some('0') && peek_char == 'b' {
+            base = 2;
+            self.next();
+            self.next();
+        } else if self.cc == Some('0') && peek_char == 'o' {
+            base = 8;
+            self.next();
+            self.next();
+        } else if self.cc == Some('0') && peek_char == 'x' {
+            base = 16;
+            self.next();
+            self.next();
         }
 
         if base != 10 && hex_digit_value(self.peek() as char) == 16 {
@@ -409,19 +410,19 @@ where
         self.scan_digit_seq(base);
 
         // scan fractional
-        if self.cc == '.' && base == 10 {
+        if self.cc == Some('.') && base == 10 {
             tok = Tok::RealLiteral;
             self.next();
             self.scan_digit_seq(base)
         }
 
         // scan exponent
-        if self.cc == 'e' || self.cc == 'E' {
+        if self.cc == Some('e') || self.cc == Some('E') {
             tok = Tok::RealLiteral;
             self.next();
 
             // scan exponent sign
-            if self.cc == '-' || self.cc == '+' {
+            if self.cc == Some('-') || self.cc == Some('+') {
                 self.next()
             }
 
@@ -442,7 +443,15 @@ where
         let base;
         let max;
 
-        match self.cc {
+        let c = match self.cc {
+            Some(c) => c,
+            None => {
+                self.err("unterminated escape sequence", prev_offset);
+                return false;
+            }
+        };
+
+        match c {
             'a' | 'b' | 'f' | 'n' | 'r' | 't' | 'v' | '\\' => {
                 self.next();
                 return true;
@@ -481,13 +490,7 @@ where
             }
 
             _ => {
-                let msg = if self.cc == EOF {
-                    "unterminated escape sequence"
-                } else {
-                    "unknown escape sequence"
-                };
-
-                self.err(msg, prev_offset);
+                self.err("unknown escape sequence", prev_offset);
                 return false;
             }
         }
@@ -495,14 +498,19 @@ where
         let mut x = 0;
 
         while n > 0 {
-            let d = hex_digit_value(self.cc);
+            let d = if let Some(ch) = self.cc {
+                hex_digit_value(ch)
+            } else {
+                self.err("unterminated escape sequence", self.offset);
+                return false;
+            };
 
             if d >= base {
-                let mut msg = "illegal unicode escape sequence";
-
-                if self.cc == EOF {
-                    msg = "unterminated escape sequence";
-                }
+                let msg = if self.cc.is_none() {
+                    "unterminated escape sequence"
+                } else {
+                    "illegal unicode escape sequence"
+                };
 
                 self.err(msg, self.offset);
                 return false;
@@ -513,7 +521,7 @@ where
             n -= 1;
         }
 
-        if x > max || 0xD800 <= x && x < 0xE000 {
+        if x > max || (0xD800..0xE000).contains(&x) {
             self.err("illegal unicode escape sequence", prev_offset);
             return false;
         }
@@ -526,18 +534,18 @@ where
         loop {
             let ch = self.cc;
 
-            if ch == '\n' || ch < 0 as char {
+            if ch == Some('\n') || ch.is_none() {
                 self.err("unterminated string literal", prev_offset);
                 break;
             }
 
             self.next();
 
-            if ch == '"' {
+            if ch == Some('"') {
                 break;
             }
 
-            if ch == '\\' {
+            if ch == Some('\\') {
                 self.scan_escape('"');
             }
         }
@@ -554,7 +562,7 @@ where
         loop {
             let ch = self.cc;
 
-            if ch == '\n' || ch == EOF {
+            if ch == Some('\n') || ch.is_none() {
                 if valid {
                     self.err("unterminated char literal", prev_offset);
                     valid = false
@@ -565,7 +573,7 @@ where
 
             self.next();
 
-            if ch == '\'' {
+            if ch == Some('\'') {
                 if n == 0 {
                     self.err("empty char literal", prev_offset);
                     valid = false;
@@ -576,7 +584,7 @@ where
 
             n += 1;
 
-            if ch == '\\' {
+            if ch == Some('\\') {
                 valid = self.scan_escape('\'');
             }
         }
@@ -623,7 +631,7 @@ mod tests {
         parse_comment: bool,
         expected: &[LexerResult],
     ) {
-        let file = set.add_file("test_file".to_owned(), input.len() as u64);
+        let file = set.add_file("test_file".to_owned(), input.len());
         let src = input.as_bytes();
 
         let mut l = Lexer::new(file, src, parse_comment, |msg, pos| {
