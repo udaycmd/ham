@@ -53,8 +53,8 @@ impl FileSet {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        self.files.iter().map(|f| f.size).sum()
+    pub fn lines(&self) -> usize {
+        self.files.iter().map(|f| f.lines.len()).sum()
     }
 
     pub fn add_file(&mut self, file_name: String, file_size: usize) -> &mut File {
@@ -68,7 +68,7 @@ impl FileSet {
         let next_base = self
             .base
             .checked_add(file_size + 1)
-            .expect("crash: offset overflow");
+            .expect("offset overflow");
 
         self.base = next_base;
         let index = self.files.len();

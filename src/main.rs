@@ -1,5 +1,3 @@
-mod frontend;
-
 fn main() {
     if let Err(e) = ham::executor() {
         eprintln!("{e}");

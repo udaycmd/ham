@@ -30,7 +30,7 @@ pub fn get_ident_or_keyword(s: &str) -> Tok {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, PartialOrd)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd)]
 #[repr(u8)]
 pub enum Tok {
     Eof,
