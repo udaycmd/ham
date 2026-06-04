@@ -1,5 +1,6 @@
 #![recursion_limit = "512"]
 
+mod cli;
 pub mod frontend;
 
 pub fn executor() -> Result<(), String> {
@@ -8,15 +9,20 @@ pub fn executor() -> Result<(), String> {
     let handler = std::thread::Builder::new()
         .name(String::from("ham_main"))
         .stack_size(MAX_STACK_SIZE)
-        .spawn(|| println!("Hello, World"))
-        .map_err(|e| format!("internal_error: failed to spawn main thread: {e}"))?;
+        .spawn(|| {
+            let args: Vec<String> = std::env::args().collect();
+            let builder = cli::builder::Builder::new();
+            if let Err(e) = builder.parse_cli_args(&args) {
+                return Err(e);
+            }
 
-    handler.join().map_err(|e| {
-        format!(
-            "internal_error: main thread panicked during execution [cause: {:?}]",
-            e
-        )
-    })?;
+            Ok(())
+        })
+        .expect("internal_error: failed to spawn main thread");
 
-    Ok(())
+    match handler.join() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("internal_error: main thread panicked during execution".to_owned()),
+    }
 }

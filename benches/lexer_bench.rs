@@ -3,8 +3,8 @@ use ham::frontend::lexer::{lex::Lexer, pos::FileSet, token::Tok};
 use std::{fs, hint::black_box, path::PathBuf};
 
 fn load_test_files() -> Vec<(String, Vec<u8>)> {
-    let data_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches/test_data");
-    let mut entries: Vec<PathBuf> = fs::read_dir(&data_dir)
+    let test_data = PathBuf::from("benches/test_data");
+    let mut entries: Vec<PathBuf> = fs::read_dir(&test_data)
         .unwrap()
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| path.is_file())
