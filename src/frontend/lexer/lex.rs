@@ -13,7 +13,7 @@ fn hex_digit_value(ch: char) -> u32 {
 
 pub struct Lexer<'a, E>
 where
-    E: Fn(&str, &SourcePosition),
+    E: Fn(String, SourcePosition),
 {
     pub file: &'a mut File,
     src: &'a [u8],
@@ -27,7 +27,7 @@ where
 
 impl<'a, E> Lexer<'a, E>
 where
-    E: Fn(&str, &SourcePosition),
+    E: Fn(String, SourcePosition),
 {
     pub fn new(file: &'a mut File, src: &'a [u8], parse_comment: bool, err_cb: E) -> Self {
         let mut lexer = Self {
@@ -272,7 +272,10 @@ where
 
     #[inline]
     fn err(&mut self, msg: &str, offset: usize) {
-        (self.err_cb)(msg, &self.file.source_pos(self.file.to_set_pos(offset)));
+        (self.err_cb)(
+            msg.to_owned(),
+            self.file.source_pos(self.file.to_set_pos(offset)),
+        );
         self.err_count += 1;
     }
 
